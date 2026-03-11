@@ -2,6 +2,7 @@ import java.io.FileInputStream
 import java.util.Properties
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import org.gradle.api.tasks.testing.logging.TestLogEvent
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jlleitschuh.gradle.ktlint.reporter.ReporterType
 
 plugins {
@@ -35,6 +36,9 @@ tasks.check {
     dependsOn("checkstyle")
 }
 
+@Suppress(
+    "DEPRECATION"
+) // BaseAppModuleExtension — android.newDsl=true blocked by KGP 2.2.0 ClassCastException
 android {
     val versionPropsFile = file("version.properties")
     val versionProps = Properties()
@@ -66,14 +70,6 @@ android {
         }
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-        freeCompilerArgs = listOf(
-            "-opt-in=kotlin.contracts.ExperimentalContracts",
-            "-Xjvm-default=all-compatibility"
-        )
-    }
-
     defaultConfig {
         applicationId = "inc.flide.vi8"
         minSdk = 24
@@ -102,6 +98,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    @Suppress("UnstableApiUsage")
     bundle.language.enableSplit = false
 
     buildFeatures {
@@ -134,7 +131,10 @@ android {
 
         named("release") {
             isMinifyEnabled = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             if (System.getenv("VIM8_BUILD_KEYSTORE_FILE") != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -191,8 +191,18 @@ android {
     }
 
     sourceSets {
-        findByName("main")?.java?.srcDirs(project.file("src/main/kotlin"))
-        findByName("test")?.java?.srcDirs(project.file("src/test/kotlin"))
+        findByName("main")?.java?.srcDir(project.file("src/main/kotlin"))
+        findByName("test")?.java?.srcDir(project.file("src/test/kotlin"))
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_17
+        freeCompilerArgs.addAll(
+            "-opt-in=kotlin.contracts.ExperimentalContracts",
+            "-Xjvm-default=all-compatibility"
+        )
     }
 }
 

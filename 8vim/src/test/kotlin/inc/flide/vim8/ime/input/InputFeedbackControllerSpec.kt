@@ -128,7 +128,7 @@ class InputFeedbackControllerSpec : FunSpec({
                             verify { audioManager.playSoundEffect(soundFx, volume) }
                         }
                         if (haptic) {
-                            verify {
+                            verify(timeout = 2000) {
                                 vibrator.vibrate(
                                     duration = 50,
                                     strength = 50,
@@ -162,7 +162,7 @@ class InputFeedbackControllerSpec : FunSpec({
                             }
                         }
                         if (haptic && hapticSector > 0) {
-                            verify {
+                            verify(timeout = 2000) {
                                 vibrator.vibrate(
                                     duration = 50,
                                     strength = 50,

@@ -79,7 +79,7 @@
 
 **Version**: 0.17.0  
 **Branch**: main  
-**State**: Stable — full dependency upgrade completed; pipeline green (130 tasks)
+**State**: Stable — dependency upgrade + warning fixes completed; pipeline green (97 tasks)
 **Distribution**: Available on F-Droid and Google Play
 
 ## Evolution of Key Decisions

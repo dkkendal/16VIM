@@ -1,14 +1,29 @@
 # Active Context: 8VIM
 
-## Current State (as of dependency upgrade session)
+## Current State (as of warning-fixes session)
 
-The project is at **version 0.17.0**. A full dependency upgrade has just been completed, bringing all toolchain and library versions to their latest compatible releases.
+The project is at **version 0.17.0**. A full dependency upgrade was completed in the previous session. This session resolved all build warnings introduced by that upgrade.
 
 ## Current Work Focus
 
-**Completed:** Full dependency upgrade (Gradle, AGP, Kotlin, AndroidX, third-party libs, targetSdk).
+**Completed:** Warning fixes pass — all 6 categories of deprecation/lint warnings eliminated.
 
-### Summary of Changes Made
+### Summary of Changes Made This Session
+
+| Fix | File(s) Changed | Detail |
+|-----|----------------|--------|
+| `android {}` deprecation | `8vim/build.gradle.kts` | Added `@Suppress("DEPRECATION")` — `android.newDsl=false` kept due to KGP 2.2.0 `ClassCastException` |
+| `kotlinOptions` → new DSL | `8vim/build.gradle.kts` | Moved compiler options to top-level `kotlin { compilerOptions { jvmTarget; freeCompilerArgs } }` |
+| `bundle.language.enableSplit` | `8vim/build.gradle.kts` | Added `@Suppress("UnstableApiUsage")` |
+| `srcDirs(vararg)` deprecation | `8vim/build.gradle.kts` | Changed `srcDirs(...)` → `srcDir(...)` in sourceSets |
+| FlagsSpec unused warning | `8vim/src/test/kotlin/inc/flide/vim8/ime/layout/models/yaml/FlagsSpec.kt` | Added `@Suppress("unused")` |
+| `InvalidManifestAttribute` lint | `8vim/src/main/AndroidManifest.xml` | Removed invalid `launchMode` and `theme` attrs from `<activity-alias>` |
+| Flaky coroutine tests | `InputFeedbackControllerSpec.kt`, `KeyboardControllerSpec.kt` | `verify(timeout=2000)` for async haptic calls; `delay(200)` after `interruptLongPress` trigger |
+
+### Pipeline Result
+**97 tasks — BUILD SUCCESSFUL** (clean + assembleRelease + testDebugUnitTest + lintDebug + ktlintCheck)
+
+## Dependency Upgrade Summary (from previous session)
 | Component | Before | After |
 |-----------|--------|-------|
 | Gradle wrapper | 8.9 | 9.4.0 |
@@ -32,12 +47,6 @@ The project is at **version 0.17.0**. A full dependency upgrade has just been co
 | logback-classic (test) | 1.5.12 | 1.5.32 |
 | targetSdk | 34 | 35 |
 
-### Files Modified
-- `gradle/wrapper/gradle-wrapper.properties` — Gradle 9.4.0
-- `gradle/libs.versions.toml` — all version bumps above
-- `8vim/build.gradle.kts` — targetSdk 35, lint disable additions
-- `8vim/src/test/kotlin/inc/flide/vim8/ime/layout/models/yaml/FlagsSpec.kt` — test fix
-
 ## Key Decisions & Considerations
 
 ### Architecture Decisions (unchanged)
@@ -45,11 +54,15 @@ The project is at **version 0.17.0**. A full dependency upgrade has just been co
 - **Jetpack Compose** is the UI framework for settings/app screens, but the **keyboard views** (MainKeyboardView, NumberKeypadView, etc.) are still traditional Android Views.
 - **CBOR caching** of parsed layouts is intentional for performance.
 
-### Upgrade-Specific Notes
+### Warning-Fix Notes
+- **`android.newDsl=false`** kept intentionally — `android.newDsl=true` causes a `ClassCastException` in KGP 2.2.0 (`BaseAppModuleExtension` cast). The `@Suppress("DEPRECATION")` silences the resulting IDE warning.
+- **`kotlin { compilerOptions { } }`** is the AGP 8+ / KGP 2+ replacement for `android { kotlinOptions { } }`. Both produce identical bytecode; the new DSL is the forward-compatible form.
+- **Flaky test root cause** — `InputFeedbackController.performHapticFeedback` and `KeyboardController.interruptLongPress` both launch background coroutines on `Dispatchers.Default`. Tests verified mock calls without awaiting the coroutine. Fixed with `verify(timeout=2000)` and an extra `delay(200)` in the relevant test cases.
+- **`InvalidManifestAttribute`** — `launchMode` and `theme` on `<activity-alias>` are silently ignored by Android (these attributes are inherited from `targetActivity`). The attributes were removed from `SettingsLauncherAlias`.
+
+### Upgrade-Specific Notes (from previous session)
 - **Jackson capped at 2.18.6** — Jackson 2.19+ requires Java 11 bytecode APIs unavailable below `minSdk 26`. If `minSdk` is ever raised to 26+, Jackson can be updated to 2.21+.
-- **FlagsSpec test fix** — Jackson 2.16+ changed `StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION` to disabled by default (security hardening). The two failing tests that asserted exact error messages with source snippets were changed to `shouldStartWith` on just the meaningful error prefix.
-- **Lint disabled checks expanded** — AGP 8.13.2 introduced internal lint crashes when used with Kotlin 2.2.0's K2 compiler (affecting `UElementAsPsiDetector` and `CleanupDetector`). Five new lint checks now flag pre-existing code (`AndroidGradlePluginVersion`, `IntentFilterUniqueDataAttributes`, `ConfigurationScreenWidthHeight`, `LocalContextResourcesRead`, `UseKtx`) — all suppressed for this upgrade PR. These should be addressed in follow-up PRs.
-- **IDE sync issue** — Android Studio shows "Unresolved reference 'material'" at the `libs.androidx.compose.material.icons.core` accessor in `build.gradle.kts`. This is an IDE version catalog accessor resolution bug and does **not** affect actual Gradle builds. Trigger `File > Sync Project with Gradle Files` to resolve.
+- **Lint disabled checks expanded** — AGP 8.13.2 + Kotlin 2.2.0 K2 UAST compatibility crashes affect `UElementAsPsi` and `Recycle`. Five pre-existing violations (`AndroidGradlePluginVersion`, `IntentFilterUniqueDataAttributes`, `ConfigurationScreenWidthHeight`, `LocalContextResourcesRead`, `UseKtx`) also suppressed. Address in follow-up PRs.
 
 ### Known Patterns & Preferences (unchanged)
 - Preference keys follow `prefs_<group>_<subgroup>_<name>` convention
@@ -61,7 +74,7 @@ The project is at **version 0.17.0**. A full dependency upgrade has just been co
 
 | Purpose | File |
 |---------|------|
-| IME core service | `8vim/src/main/kotlin/inc/flide/vim8/MainInputMethodService.kt` |
+| IME core service | `8vim/src/main/kotlin/inc/flide/vim8/Vim8ImeService.kt` |
 | Application entry | `8vim/src/main/kotlin/inc/flide/vim8/VIM8Application.kt` |
 | All preferences | `8vim/src/main/kotlin/inc/flide/vim8/AppPrefs.kt` |
 | Gesture processing | `8vim/src/main/kotlin/inc/flide/vim8/ime/actionlisteners/MainKeypadActionListener.kt` |
@@ -76,4 +89,5 @@ The project is at **version 0.17.0**. A full dependency upgrade has just been co
   - `UseKtx` — migrate `ColorPreference.kt`, `LaunchUtils.kt`, `Layout.kt` to KTX extensions
   - `IntentFilterUniqueDataAttributes` — split data tags in `AndroidManifest.xml`
 - Consider raising `minSdk` from 24 → 26 to unlock Jackson 2.19+ and other Java 11+ libraries
-- Re-enable `UElementAsPsi` and `Recycle` lint checks once AGP fixes the Kotlin 2.2.0 K2 UAST compatibility issue
+- Re-enable `UElementAsPsi` and `Recycle` lint checks once AGP fixes the Kotlin 2.2.0 K2 UAST issue
+- Proper coroutine test infrastructure: inject `TestDispatcher` via DI so haptic/keyboard tests don't need `delay`/`timeout` workarounds

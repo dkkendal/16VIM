@@ -303,6 +303,7 @@ class KeyboardControllerSpec : FunSpec({
             controller.onTouchEventInternal(event)
             delay(500)
             controller.onTouchEventInternal(event)
+            delay(200) // wait for interruptLongPress coroutine to complete
 
             verifyOrder {
                 for ((m, action) in movements) {

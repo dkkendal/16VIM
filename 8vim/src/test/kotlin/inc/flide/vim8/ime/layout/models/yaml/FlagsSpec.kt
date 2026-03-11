@@ -16,6 +16,7 @@ import io.kotest.property.Arb
 import io.kotest.property.arbitrary.int
 import io.kotest.property.checkAll
 
+@Suppress("unused")
 class FlagsSpec : FunSpec({
     val mapper = ObjectMapper().registerKotlinModule().registerModule(
         SimpleModule(Flags.FlagsDeserializer::class.qualifiedName)
