@@ -134,7 +134,7 @@ android {
 
         named("release") {
             isMinifyEnabled = true
-            proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (System.getenv("VIM8_BUILD_KEYSTORE_FILE") != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
