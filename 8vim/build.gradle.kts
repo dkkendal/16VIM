@@ -1,5 +1,3 @@
-@file:Suppress("DSL_SCOPE_VIOLATION")
-
 import java.io.FileInputStream
 import java.util.Properties
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
@@ -49,7 +47,7 @@ android {
     val prNumber = versionProps["PR"] as String?
 
     namespace = "inc.flide.vim8"
-    compileSdk = 34
+    compileSdk = 36
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -71,7 +69,6 @@ android {
     kotlinOptions {
         jvmTarget = "17"
         freeCompilerArgs = listOf(
-            "-Xallow-result-return-type",
             "-opt-in=kotlin.contracts.ExperimentalContracts",
             "-Xjvm-default=all-compatibility"
         )
@@ -80,7 +77,7 @@ android {
     defaultConfig {
         applicationId = "inc.flide.vi8"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 35
         resValue("string", "app_name", "8Vim")
         if (prNumber != null) {
             versionCode = (System.currentTimeMillis() / 1000).toInt()
@@ -129,7 +126,7 @@ android {
             applicationIdSuffix = if (prNumber != null) ".pr$prNumber" else ".debug"
             val name = if (prNumber != null) "PR $prNumber" else "Debug"
             resValue("string", "app_name", "8Vim $name")
-            enableUnitTestCoverage
+            enableUnitTestCoverage = true
 //            Activate R8 in debug mode, good to check if any new library added works
 //            isMinifyEnabled = true
 //            proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
@@ -158,7 +155,16 @@ android {
             "VectorPath",
             "UnusedResources",
             "GradleDependency",
-            "OldTargetApi"
+            "OldTargetApi",
+            // AGP 8.13.2 + Kotlin 2.2.0 K2 UAST compatibility crashes (internal lint engine bugs):
+            "UElementAsPsi",
+            "Recycle",
+            // Pre-existing violations newly detected by AGP 8.13.2 lint (fix in separate PRs):
+            "AndroidGradlePluginVersion",
+            "IntentFilterUniqueDataAttributes",
+            "ConfigurationScreenWidthHeight",
+            "LocalContextResourcesRead",
+            "UseKtx"
         )
         htmlReport = true
         warningsAsErrors = true
@@ -213,6 +219,7 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)

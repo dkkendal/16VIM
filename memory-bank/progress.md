@@ -66,8 +66,11 @@
 ### Outstanding / Potential Work
 - ⬜ Additional language layout files (currently primarily English)
 - ⬜ Accessibility improvements (TalkBack compatibility, content descriptions)
-- ⬜ Dependency updates: Kotlin 1.8.21 → newer, Compose 1.5.2 → newer, Arrow 1.2.0 → newer
-- ⬜ Android 15+ compatibility verification
+- ✅ ~~Dependency updates: Kotlin, Compose, Arrow, AGP, Gradle~~ — Completed 2026-03
+- ✅ ~~Android 15+ compatibility verification~~ — targetSdk now 35
+- ⬜ Fix new lint violations suppressed during upgrade: `ConfigurationScreenWidthHeight`, `LocalContextResourcesRead`, `UseKtx`, `IntentFilterUniqueDataAttributes`
+- ⬜ Consider raising `minSdk` 24 → 26 to unlock Jackson 2.19+ and other Java 11+ libs
+- ⬜ Re-enable `UElementAsPsi` + `Recycle` lint checks once AGP fixes K2 UAST compat
 - ⬜ Word suggestion / NLP integration (architecture has `ime/nlp/` package — only `BreakIteratorGroup` exists)
 - ⬜ Potential Compose migration for keyboard views (currently all traditional Views)
 - ⬜ UI tests for keyboard gestures (currently no Espresso/UI tests for gesture sequences)
@@ -75,8 +78,8 @@
 ## Current Status
 
 **Version**: 0.17.0  
-**Branch**: main (`a6139c0b`)  
-**State**: Stable / maintenance mode — no active feature development detected  
+**Branch**: main  
+**State**: Stable — full dependency upgrade completed; pipeline green (130 tasks)
 **Distribution**: Available on F-Droid and Google Play
 
 ## Evolution of Key Decisions

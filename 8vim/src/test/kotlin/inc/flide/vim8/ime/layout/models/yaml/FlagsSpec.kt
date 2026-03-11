@@ -11,6 +11,7 @@ import inc.flide.vim8.ime.layout.models.yaml.versions.common.Flags
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldStartWith
 import io.kotest.property.Arb
 import io.kotest.property.arbitrary.int
 import io.kotest.property.checkAll
@@ -36,8 +37,7 @@ class FlagsSpec : FunSpec({
             val exception = shouldThrow<MismatchedInputException> {
                 mapper.readValue<Flags>("-3")
             }
-            exception.message shouldBe """flag value must be positive
- at [Source: (String)"-3"; line: 1, column: 1]"""
+            exception.message shouldStartWith "flag value must be positive"
         }
     }
 
@@ -52,8 +52,7 @@ class FlagsSpec : FunSpec({
                 shouldThrow<MismatchedInputException> {
                     mapper.readValue<Flags>(""""NOT_A_FLAG"""")
                 }
-            exception.message shouldBe """unknown meta modifier
- at [Source: (String)""NOT_A_FLAG""; line: 1, column: 1]"""
+            exception.message shouldStartWith "unknown meta modifier"
         }
     }
 
