@@ -23,12 +23,13 @@ import inc.flide.vim8.theme.lightColorPalette
 
 fun appPreferenceModel() = Datastore.getOrCreatePreferenceModel(AppPrefs::class, ::AppPrefs)
 
-class AppPrefs : PreferenceModel(8) {
+class AppPrefs : PreferenceModel(9) {
     val layout = Layout()
     val theme = Theme()
     val clipboard = Clipboard()
     val keyboard = Keyboard()
     val inputFeedback = InputFeedback()
+    val wordPrediction = WordPrediction()
     val internal = Internal()
 
     inner class Clipboard {
@@ -239,6 +240,13 @@ class AppPrefs : PreferenceModel(8) {
                     boolean(key = "prefs_keyboard_behavior_cursor_move_by_word", default = false)
             }
         }
+    }
+
+    inner class WordPrediction {
+        val enabled = boolean(
+            key = "prefs_word_prediction_enabled",
+            default = false
+        )
     }
 
     inner class Internal {

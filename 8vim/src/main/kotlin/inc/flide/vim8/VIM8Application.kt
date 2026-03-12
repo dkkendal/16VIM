@@ -11,16 +11,23 @@ import inc.flide.vim8.ime.layout.Cache
 import inc.flide.vim8.ime.layout.YamlLayoutLoader
 import inc.flide.vim8.ime.layout.parsers.CborParser
 import inc.flide.vim8.ime.layout.parsers.yaml.YamlParser
+import inc.flide.vim8.ime.nlp.SuggestionsManager
+import inc.flide.vim8.ime.nlp.WordFrequencyRepository
 import inc.flide.vim8.ime.theme.ThemeManager
 import inc.flide.vim8.lib.android.tryOrNull
 import inc.flide.vim8.lib.backup.BackupManager
 import inc.flide.vim8.theme.ThemeMode
 import java.lang.ref.WeakReference
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 private var vim8ApplicationReference = WeakReference<VIM8Application?>(null)
 
 class VIM8Application : Application() {
     private val prefs by appPreferenceModel()
+    private val appScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val layoutParser = YamlParser()
     val cache = lazy { Cache(CborParser(), this) }
@@ -30,6 +37,8 @@ class VIM8Application : Application() {
     val themeManager = lazy { ThemeManager(this) }
     val keyboardManager = lazy { KeyboardManager(this) }
     val editorInstance = lazy { EditorInstance(this) }
+    val wordFrequencyRepository = lazy { WordFrequencyRepository(this) }
+    val suggestionsManager = lazy { SuggestionsManager(this, wordFrequencyRepository.value) }
 
     override fun onCreate() {
         super.onCreate()
@@ -48,6 +57,11 @@ class VIM8Application : Application() {
             else -> AppCompatDelegate.setDefaultNightMode(
                 AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
             )
+        }
+
+        // Seed the word-frequency dictionary on first install (runs entirely on IO dispatcher).
+        appScope.launch {
+            wordFrequencyRepository.value.seedIfNeeded(assets)
         }
     }
 }
@@ -72,3 +86,5 @@ fun Context.keyboardManager() = this.vim8Application().keyboardManager
 fun Context.clipboardManager() = this.vim8Application().clipboardManager
 fun Context.backupManager() = this.vim8Application().backupManager
 fun Context.editorInstance() = this.vim8Application().editorInstance
+fun Context.suggestionsManager() = this.vim8Application().suggestionsManager
+fun Context.wordFrequencyRepository() = this.vim8Application().wordFrequencyRepository

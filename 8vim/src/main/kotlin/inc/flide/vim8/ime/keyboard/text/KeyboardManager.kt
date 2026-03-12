@@ -13,10 +13,12 @@ import inc.flide.vim8.ime.input.InputShiftState
 import inc.flide.vim8.ime.layout.models.CustomKeycode
 import inc.flide.vim8.ime.layout.models.KeyboardAction
 import inc.flide.vim8.ime.layout.models.KeyboardActionType
+import inc.flide.vim8.suggestionsManager
 
 class KeyboardManager(context: Context) : InputKeyEventReceiver {
     private val prefs by appPreferenceModel()
     private val editorInstance by context.editorInstance()
+    private val suggestionsManager by context.suggestionsManager()
     val activeState = ObservableKeyboardState.new()
 
     private val repeatableKeyCodes = intArrayOf(
@@ -119,6 +121,9 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
             CustomKeycode.SELECTION_START -> handleSelectionStart()
             CustomKeycode.SELECT_ALL -> handleSelectAll()
             CustomKeycode.HIDE_KEYBOARD -> Vim8ImeService.hideKeyboard()
+            CustomKeycode.SELECT_SUGGESTION_LEFT -> suggestionsManager.commitSuggestion(0)
+            CustomKeycode.SELECT_SUGGESTION_MIDDLE -> suggestionsManager.commitSuggestion(1)
+            CustomKeycode.SELECT_SUGGESTION_RIGHT -> suggestionsManager.commitSuggestion(2)
             else -> {}
         }
     }

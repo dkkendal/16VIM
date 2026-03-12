@@ -70,6 +70,21 @@ fun KeyboardScreen() = Screen {
         }
 
         PreferenceGroup(
+            title = stringRes(R.string.settings__keyboard__word_prediction__group__title)
+        ) {
+            SwitchPreference(
+                pref = prefs.wordPrediction.enabled,
+                title = stringRes(R.string.settings__keyboard__word_prediction__enabled__title),
+                summaryOn = stringRes(
+                    R.string.settings__keyboard__word_prediction__enabled__summary__on
+                ),
+                summaryOff = stringRes(
+                    R.string.settings__keyboard__word_prediction__enabled__summary__off
+                )
+            )
+        }
+
+        PreferenceGroup(
             title = stringRes(R.string.settings__keyboard__circle__auto_resize_group__title)
         ) {
             SwitchPreference(

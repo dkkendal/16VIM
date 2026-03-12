@@ -15,6 +15,8 @@ import inc.flide.vim8.ime.input.InputFeedbackController
 import inc.flide.vim8.ime.input.InputKeyEventReceiver
 import inc.flide.vim8.ime.input.InputShiftState
 import inc.flide.vim8.ime.layout.models.CustomKeycode
+import inc.flide.vim8.ime.nlp.SuggestionsManager
+import inc.flide.vim8.suggestionsManager
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.datatest.withData
 import io.mockk.Runs
@@ -35,6 +37,7 @@ class KeyboardManagerSpec : FunSpec(
         lateinit var context: Context
         lateinit var keyboardState: ObservableKeyboardState
         lateinit var editor: EditorInstance
+        lateinit var suggestionsManager: SuggestionsManager
         lateinit var observerCtrl: PreferenceObserver<Boolean>
         lateinit var observerFn: PreferenceObserver<Boolean>
         val inputFeedbackController = mockk<InputFeedbackController>(relaxed = true)
@@ -118,6 +121,12 @@ class KeyboardManagerSpec : FunSpec(
                 }
 
                 CustomKeycode.HIDE_KEYBOARD.keyCode -> verify { Vim8ImeService.hideKeyboard() }
+                CustomKeycode.SELECT_SUGGESTION_LEFT.keyCode ->
+                    verify { suggestionsManager.commitSuggestion(0) }
+                CustomKeycode.SELECT_SUGGESTION_MIDDLE.keyCode ->
+                    verify { suggestionsManager.commitSuggestion(1) }
+                CustomKeycode.SELECT_SUGGESTION_RIGHT.keyCode ->
+                    verify { suggestionsManager.commitSuggestion(2) }
 
                 else -> verify {
                     editor.sendDownAndUpKeyEvent(keyCode, any())
@@ -127,6 +136,7 @@ class KeyboardManagerSpec : FunSpec(
 
         beforeSpec {
             mockkStatic(Context::editorInstance)
+            mockkStatic(Context::suggestionsManager)
             mockkStatic(::appPreferenceModel)
             mockkObject(ObservableKeyboardState)
             mockkObject(Vim8ImeService)
@@ -134,6 +144,7 @@ class KeyboardManagerSpec : FunSpec(
 
             context = mockk {
                 every { editorInstance() } answers { lazy { editor } }
+                every { suggestionsManager() } answers { lazy { suggestionsManager } }
             }
 
             every { ObservableKeyboardState.new() } answers { keyboardState }
@@ -178,6 +189,7 @@ class KeyboardManagerSpec : FunSpec(
                 every { isFnOn } returns false
                 every { inputShiftState } returns InputShiftState.CAPS_LOCK
             }
+            suggestionsManager = mockk(relaxed = true)
         }
 
         test("Observe ctrl and fn on switch") {

@@ -1,268 +1,174 @@
-# Implementation Plan: Gradle & Dependency Upgrade
+# Implementation Plan: Word Prediction for 8VIM
 
 [Overview]
-Update all build toolchain components and library dependencies in the 8VIM Android project to their latest stable versions.
+Add word prediction (auto-suggestions) to the 8VIM keyboard using Android's built-in TextServicesManager/SpellCheckerSession API.
 
-This upgrade covers three tiers: (1) build toolchain (Gradle wrapper, Android Gradle Plugin, Kotlin, KSP), (2) AndroidX + Jetpack Compose stack, and (3) third-party libraries. The project currently uses Gradle 8.9 / AGP 8.7.2 / Kotlin 2.0.21, which are all one to several major releases behind.
+The 8VIM keyboard previously had a partial implementation of word prediction in the `predictive_text` branch (abandoned ~3 years ago). That branch was built on the old Java/XML-View architecture, used a bundled 333k-word English-only CSV dictionary loaded synchronously at startup, and wired everything through `onCreateCandidatesView()`. The current codebase is entirely Kotlin/Jetpack Compose, uses a service/manager pattern via `VIM8Application` lazy singletons, and manages all UI via composables inside `Vim8ImeService`.
 
-A key decision in this plan is to **skip** the Arrow 1.x → 2.x upgrade, as Arrow 2.x introduces breaking API changes across the entire functional programming stack (including the dependent `arrow-integrations-jackson-module` and `kotest-arrow` extensions). That migration warrants its own dedicated plan. Similarly, Kotest 5.x is kept because Kotest 6.x is still at milestone (M4) status and not yet stable.
-
-The upgrades are grouped into three sequential, independently-verifiable batches to follow the Baby Steps™ methodology and minimise breakage surface.
-
----
+This implementation rebuilds word prediction from scratch using the modern architecture. Instead of a bundled CSV, we use Android's `TextServicesManager` + `SpellCheckerSession` — a zero-APK-size approach that supports any language the device has a dictionary installed for. The suggestion strip is a Compose component embedded directly in the keyboard's `ImeUi` composable column, appearing above the xpad when typing in TEXT mode. Tapping a suggestion deletes the current partial word and commits the full suggestion + a trailing space. A toggle in Settings (Keyboard screen) lets users enable/disable the feature.
 
 [Types]
-No new types are introduced; this is a pure version-number and configuration change.
+No new sealed classes or enums are needed; the main data structures are Kotlin data flows and standard Android types.
 
-No Kotlin types, data classes, interfaces, or enums are added or removed. However, some AGP/Gradle DSL property names may change between versions (noted in the Functions section). The `compileSdk` and `targetSdk` values in `8vim/build.gradle.kts` are treated as configuration constants and are upgraded from 34 → 35 (Android 15), but this requires a code-level review of edge-to-edge handling.
-
----
+- `StateFlow<List<String>>` — emitted by `SuggestionsManager` to hold the current 3 suggestion strings (empty list when no suggestions or prediction disabled)
+- `TextInfo(word: String)` — Android built-in type passed to `SpellCheckerSession.getSuggestions()`
+- `SuggestionsInfo[]` — Android built-in callback result type from `SpellCheckerSession`
+- `currentWordLength: Int` — mutable int field on `SuggestionsManager` tracking how many characters of the current partial word are before the cursor (needed for deletion on suggestion tap)
+- New preference: `wordPrediction.enabled: Boolean` — stored as `"prefs_word_prediction_enabled"` in SharedPreferences
 
 [Files]
-Two build files and one properties file require changes; no source files should need changes for the core upgrade.
+New files to create and existing files to modify.
 
-### Files to Modify
+**New Files:**
+- `8vim/src/main/kotlin/inc/flide/vim8/ime/nlp/SuggestionsManager.kt`
+  Purpose: Wraps Android's `TextServicesManager`/`SpellCheckerSession` lifecycle, exposes `suggestions: StateFlow<List<String>>` and `currentWordLength: Int`, provides `onTextBeforeCursor(text: CharSequence)` and `clearSuggestions()` methods.
 
-| File | Change |
-|------|--------|
-| `gradle/wrapper/gradle-wrapper.properties` | Bump `distributionUrl` from Gradle 8.9 → 9.4.0 |
-| `gradle/libs.versions.toml` | Update all version strings (see complete table below) |
-| `8vim/build.gradle.kts` | Update `compileSdk`/`targetSdk` from 34 → 35; remove `@file:Suppress("DSL_SCOPE_VIOLATION")` (no longer needed in Gradle 8.1+); fix `enableUnitTestCoverage` DSL if needed |
-| `build.gradle.kts` | Remove `@file:Suppress("DSL_SCOPE_VIOLATION")` |
+- `8vim/src/main/kotlin/inc/flide/vim8/ime/keyboard/view/SuggestionsBar.kt`
+  Purpose: Jetpack Compose `@Composable` that renders a horizontal row of up to 3 suggestion chips. Observes `SuggestionsManager.suggestions` flow. Each chip calls `commitSuggestion()` which deletes the current partial word and commits the chosen word + space via `InputConnection`.
 
-### No Files Added or Deleted
+- `8vim/src/test/kotlin/inc/flide/vim8/ime/nlp/SuggestionsManagerSpec.kt`
+  Purpose: Unit tests for word extraction logic inside `SuggestionsManager` (pure function — no Android dependencies).
 
----
+**Modified Files:**
+- `8vim/src/main/kotlin/inc/flide/vim8/AppPrefs.kt`
+  Change: Add `inner class WordPrediction` with `enabled = boolean(key = "prefs_word_prediction_enabled", default = false)`. Add `val wordPrediction = WordPrediction()` field at the top of `AppPrefs`. Bump model version from `8` to `9`.
+
+- `8vim/src/main/kotlin/inc/flide/vim8/VIM8Application.kt`
+  Change: Add `val suggestionsManager = lazy { SuggestionsManager(this) }`. Add `fun Context.suggestionsManager()` extension at the bottom of the file.
+
+- `8vim/src/main/kotlin/inc/flide/vim8/Vim8ImeService.kt`
+  Changes:
+  1. Add `private val suggestionsManager by suggestionsManager()` property delegate.
+  2. Override `onUpdateSelection()` to read `getTextBeforeCursor(500, 0)` from the current input connection and forward it to `suggestionsManager.onTextBeforeCursor()`. Only call this when `activeState.imeUiMode == ImeUiMode.TEXT`.
+  3. In `ImeUi()` composable: observe `prefs.wordPrediction.enabled` and conditionally show `SuggestionsBar()` above the keyboard when enabled and in TEXT mode.
+  4. Override `onFinishInput()` to call `suggestionsManager.clearSuggestions()`.
+
+- `8vim/src/main/kotlin/inc/flide/vim8/app/settings/KeyboardScreen.kt`
+  Change: Add a new `PreferenceGroup` titled `"Word Prediction"` near the top of the screen content block, containing a single `SwitchPreference` wired to `prefs.wordPrediction.enabled`.
+
+- `8vim/src/main/res/values/strings.xml`
+  Change: Add 3 string resources:
+  ```xml
+  <string name="settings__keyboard__word_prediction__group__title">Word Prediction</string>
+  <string name="settings__keyboard__word_prediction__enabled__title">Enable word prediction</string>
+  <string name="settings__keyboard__word_prediction__enabled__summary__on">Word suggestions will appear above the keyboard</string>
+  <string name="settings__keyboard__word_prediction__enabled__summary__off">No word suggestions shown</string>
+  ```
+
+- `memory-bank/activeContext.md` and `memory-bank/progress.md`
+  Change: Update to reflect the new feature once implemented.
 
 [Functions]
-No application logic functions change; one deprecated Gradle DSL call in `8vim/build.gradle.kts` may need correction.
+New functions and modifications to existing ones.
 
-### Potential DSL Change in `8vim/build.gradle.kts`
+**New Functions:**
 
-- **`enableUnitTestCoverage`** — Currently used as a bare property reference in the `debug` buildType block (`enableUnitTestCoverage`). In AGP 8.x this should be `enableUnitTestCoverage = true`. Verify and correct if AGP 8.13.x enforces this.
-- **`@file:Suppress("DSL_SCOPE_VIOLATION")`** — This suppression was required for a Gradle 7.x TOML alias resolution bug. It is no longer needed in Gradle 8.1+ and must be removed to avoid warnings in Gradle 9.x.
-- **`kotlinOptions { jvmTarget }`** — In Kotlin 2.x with AGP 8.x, the preferred way is via `compileOptions`/`kotlinOptions` or `compilerOptions { jvmTarget }`. Verify compiler warnings after upgrade and fix if needed.
+- `SuggestionsManager.onTextBeforeCursor(text: CharSequence): Unit`
+  File: `ime/nlp/SuggestionsManager.kt`
+  Extracts the current word being typed (everything after the last whitespace), stores its length in `currentWordLength`, and calls `spellCheckerSession?.getSuggestions(TextInfo(word), 3)` if the word is non-empty. If the word is empty, clears suggestions immediately.
 
----
+- `SuggestionsManager.clearSuggestions(): Unit`
+  File: `ime/nlp/SuggestionsManager.kt`
+  Sets `_suggestions.value = emptyList()` and resets `currentWordLength = 0`.
+
+- `SuggestionsManager.extractCurrentWord(text: String): String` (private)
+  File: `ime/nlp/SuggestionsManager.kt`
+  Pure function. Returns `""` if `text` is empty or ends with whitespace; otherwise returns the substring after the last whitespace character.
+
+- `SuggestionsManager.initSession(): Unit` (private)
+  File: `ime/nlp/SuggestionsManager.kt`
+  Closes any existing `SpellCheckerSession` and opens a new one via `textServicesManager.newSpellCheckerSession(null, null, this, true)`.
+
+- `SuggestionsManager.closeSession(): Unit` (private)
+  File: `ime/nlp/SuggestionsManager.kt`
+  Closes the `SpellCheckerSession` and calls `clearSuggestions()`.
+
+- `SuggestionsBar(): Unit` (@Composable)
+  File: `ime/keyboard/view/SuggestionsBar.kt`
+  Reads `suggestionsManager().suggestions.collectAsState()`. If the list is empty, returns without rendering. Otherwise renders a `LazyRow` (or `Row`) of `SuggestionChip` composables, each calling `commitSuggestion()` on click.
+
+- `commitSuggestion(context: Context, suggestionsManager: SuggestionsManager, suggestion: String): Unit` (private top-level)
+  File: `ime/keyboard/view/SuggestionsBar.kt`
+  Gets `Vim8ImeService.currentInputConnection()`, deletes `suggestionsManager.currentWordLength` characters before cursor, commits `"$suggestion "`, then calls `suggestionsManager.clearSuggestions()`.
+
+**Modified Functions:**
+
+- `Vim8ImeService.ImeUi()` (@Composable)
+  File: `Vim8ImeService.kt`
+  Add observation of `prefs.wordPrediction.enabled` (via `observeAsState()`). At the top of the composable block, before the `when` statement on `state.imeUiMode`, conditionally render `SuggestionsBar()` when enabled and `state.imeUiMode == ImeUiMode.TEXT`.
+
+- `Vim8ImeService.onCreateCandidatesView()`
+  File: `Vim8ImeService.kt`
+  Currently returns `null`. No change needed — suggestions strip is embedded in the keyboard Compose UI, not the Android candidates area.
+
+- `AppPrefs.migrate()` (override)
+  File: `AppPrefs.kt`
+  No migration needed for new keys; version bumped from `8` → `9`, and the `else -> entry.keepAsIs()` fallback handles the new version.
 
 [Classes]
-No class changes are required for the version bump alone.
+New classes and key modifications.
 
-If `targetSdk` is raised to 35, the app must handle Android 15 edge-to-edge enforcement. For an IME (Input Method Service), this typically does not affect the service itself, but `MainActivity` and any Activity using `WindowCompat.setDecorFitsSystemWindows()` should be reviewed. No class additions are expected; this is a review/verification step only.
+**New Classes:**
 
----
+- `SuggestionsManager` in `inc/flide/vim8/ime/nlp/SuggestionsManager.kt`
+  Implements: `SpellCheckerSession.SpellCheckerSessionListener`
+  Constructor: `(private val context: Context)`
+  Key fields:
+  - `private val textServicesManager: TextServicesManager` — obtained from system services
+  - `private var spellCheckerSession: SpellCheckerSession?` — nullable, recreated when locale changes
+  - `private val _suggestions = MutableStateFlow<List<String>>(emptyList())`
+  - `val suggestions: StateFlow<List<String>>` — public read-only view
+  - `var currentWordLength: Int = 0` — how many chars of current partial word are before cursor
+  - `private val mainHandler = Handler(Looper.getMainLooper())` — to post results to main thread
+  Key methods:
+  - `onTextBeforeCursor()`, `clearSuggestions()`, `extractCurrentWord()` (see Functions)
+  - `onGetSuggestions(results: Array<SuggestionsInfo>?)` — SpellChecker callback, posts results to main thread via handler
+  - `onGetSentenceSuggestions()` — SpellChecker callback, no-op
+  Init block: observes `prefs.wordPrediction.enabled` to init/close session accordingly.
+
+**Modified Classes:**
+
+- `AppPrefs` in `AppPrefs.kt`
+  Add nested `inner class WordPrediction` with `enabled: PreferenceData<Boolean>`.
+  Add `val wordPrediction = WordPrediction()` at class body level.
+  Bump `PreferenceModel(8)` → `PreferenceModel(9)`.
+
+- `VIM8Application` in `VIM8Application.kt`
+  Add `val suggestionsManager = lazy { SuggestionsManager(this) }`.
 
 [Dependencies]
-All version strings live in `gradle/libs.versions.toml`; the complete before/after table follows.
+No new third-party dependencies are required.
 
-### Complete Version Upgrade Table
-
-#### Build Toolchain
-
-| Key in `[versions]` | Current | Target | Notes |
-|---|---|---|---|
-| `android-gradle-plugin` | `8.7.2` | `8.13.2` | Latest stable AGP 8.x |
-| `kotlin` | `2.0.21` | `2.2.0` | Latest stable Kotlin |
-| `ksp` | `2.0.21-1.0.26` | `2.2.0-2.0.2` | **Must match Kotlin version exactly** |
-| `ktlint` | `12.1.1` | `12.1.1` | Keep — latest could not be confirmed |
-| `mannodermaus-android-junit5` | `1.11.2.0` | `1.13.1.0` | Latest stable |
-
-#### Gradle Wrapper (separate file)
-
-| File | Current | Target |
-|---|---|---|
-| `gradle-wrapper.properties` distributionUrl | `gradle-8.9-bin.zip` | `gradle-9.4.0-bin.zip` |
-
-#### AndroidX / Jetpack
-
-| Key in `[versions]` | Current | Target | Notes |
-|---|---|---|---|
-| `androidx-activity` | `1.9.3` | `1.12.4` | |
-| `android-appcompat` | `1.7.0` | `1.7.1` | |
-| `android-material` | `1.12.0` | `1.13.0` | |
-| `androidx-compose` | `1.7.5` | `1.10.4` | Compose BOM version |
-| `androidx-compose-material3` | `1.3.1` | `1.4.0` | |
-| `androidx-core` | `1.13.1` | `1.17.0` | |
-| `androidx-core-splashscreen` | `1.0.1` | `1.2.0` | |
-| `androidx-lifecycle` | `2.8.7` | `2.10.0` | |
-| `androidx-navigation` | `2.8.3` | `2.9.7` | |
-| `androidx-preference` | `1.2.1` | `1.2.1` | Keep — latest stable not confirmed to differ |
-
-#### Third-Party Libraries
-
-| Key in `[versions]` | Current | Target | Notes |
-|---|---|---|---|
-| `apache-commons` (commons-text) | `1.12.0` | `1.15.0` | |
-| `commons-codec` | `1.17.1` | `1.17.1` | Keep — Maven search returned wrong artifact |
-| `jackson` | `2.13.5` | `2.19.0` | All three jackson modules share this version |
-| `json-schema-validator` | `1.0.73` | `1.5.6` | |
-| `logback-classic` | `1.5.12` | `1.5.18` | Test-only |
-| `logback-android` | `3.0.0` | `3.0.0` | Keep — already latest |
-| `mockk` | `1.13.10` | `1.14.3` | |
-| `mikepenz-aboutlibraries` | `11.2.3` | `11.2.3` | Keep — already latest |
-| `slf4j` | `2.0.16` | `2.0.16` | Keep — 2.1.x is alpha |
-| `colorpicker` | `1.1.2` | `1.1.2` | Keep — JitPack, version unverified |
-
-#### Intentionally Skipped (Breaking / Pre-stable)
-
-| Key | Current | Latest | Reason to Skip |
-|---|---|---|---|
-| `arrow` | `1.2.4` | `2.1.2` | Arrow 2.x has breaking API changes across the codebase |
-| `arrow-jackson` | `0.14.0` | archived | Depends on Arrow; skip with Arrow |
-| `kotest` | `5.9.1` | `6.0.0.M4` | Kotest 6.x is milestone — not stable |
-| `kotest-arrow` | `1.4.0` | `1.4.0` | Depends on Arrow; skip with Arrow |
-| `kotest-runner-android` | `1.1.1` | `1.1.2` | Minor patch; defer with kotest group |
-| `kotest-assertions-android` | `1.1.1` | `1.1.1` | Already latest |
-
-#### SDK Version Changes (in `8vim/build.gradle.kts`, not `libs.versions.toml`)
-
-| Property | Current | Target | Notes |
-|---|---|---|---|
-| `compileSdk` | `34` | `35` | Android 15 stable |
-| `targetSdk` | `34` | `35` | Edge-to-edge enforcement review required |
-
----
+The `android.view.textservice.*` package (TextServicesManager, SpellCheckerSession, TextInfo, SuggestionsInfo) is part of the Android SDK (available since API 14, well within minSdk 24). `READ_USER_DICTIONARY` permission is NOT required for `TextServicesManager` — the spell checker accesses the system dictionary internally without the app needing that permission. The `apache-commons-text` library (LevenshteinDistance from old branch) is already present in `libs.versions.toml` and `build.gradle.kts` as a production dependency — it can remain (it's used nowhere currently but adding a removal is out of scope). No CSV asset needs to be added.
 
 [Testing]
-After each batch, run the full test suite and a debug build to confirm no regressions.
+Unit tests for the pure word-extraction function and integration spec for the manager's StateFlow behavior.
 
-### Validation Commands (run after each batch)
+**New test file:**
+`8vim/src/test/kotlin/inc/flide/vim8/ime/nlp/SuggestionsManagerSpec.kt`
 
-```bash
-# Clean build to flush caches
-./gradlew clean
+Test cases (using Kotest BehaviorSpec pattern consistent with the rest of the test suite):
+- `extractCurrentWord("")` → `""`
+- `extractCurrentWord("hello ")` → `""` (ends with space — no current word)
+- `extractCurrentWord("hello")` → `"hello"`
+- `extractCurrentWord("hello world")` → `"world"`
+- `extractCurrentWord("hello\nworld")` → `"world"` (newline is whitespace)
+- `onTextBeforeCursor("hello ")` → `currentWordLength == 0`, `suggestions == emptyList()`
+- `onTextBeforeCursor("hello wor")` → `currentWordLength == 3`, suggestions request queued
+- `clearSuggestions()` → `suggestions == emptyList()`, `currentWordLength == 0`
 
-# Compile check only (fast)
-./gradlew assembleDebug
-
-# Full unit test suite
-./gradlew testDebugUnitTest
-
-# Lint
-./gradlew lint
-
-# Ktlint
-./gradlew ktlintCheck
-```
-
-### Test Files Affected
-- No test files need modification for a pure version bump.
-- If `targetSdk` moves to 35 and edge-to-edge handling changes, any `MainActivityTest` or UI snapshot tests may need review.
-- MockK 1.14.x and Kotest 5.9.x are kept, so test APIs remain stable.
-
----
+The `SpellCheckerSession` should be mocked (MockK) to verify `getSuggestions()` is called with the correct `TextInfo` and suggestion count. The `TextServicesManager` system service call should be mocked at the context level.
 
 [Implementation Order]
-Upgrades are executed in 6 Baby Steps™, with Gradle 8.9 as the stable base for all library/toolchain work, and Gradle 9.4.0 applied last to isolate the biggest risk.
+Steps ordered to minimize compile errors and allow incremental validation.
 
-**Rationale:** AGP 8.13.2 requires Gradle > 8.9 (minimum ~8.11), so the Gradle wrapper upgrade and AGP upgrade must happen together. All other upgrades (Kotlin, AndroidX, third-party libs) are done first while still on the known-stable Gradle 8.9 + AGP 8.7.2 base. `targetSdk` 35 is applied as a final, isolated step.
-
----
-
-### Step 1 — Baseline Validation (no changes)
-Confirm the current build is clean before touching anything.
-```bash
-./gradlew clean assembleDebug testDebugUnitTest
-```
-Expected: green build. If not, stop and fix first.
-
----
-
-### Step 2 — Kotlin + KSP + mannodermaus (still on Gradle 8.9 + AGP 8.7.2)
-**File:** `gradle/libs.versions.toml`, update `[versions]`:
-```toml
-kotlin = "2.2.0"
-ksp = "2.2.0-2.0.2"
-mannodermaus-android-junit5 = "1.13.1.0"
-```
-**Validate:**
-```bash
-./gradlew assembleDebug testDebugUnitTest
-```
-
----
-
-### Step 3 — AndroidX + Compose Stack (still on Gradle 8.9 + AGP 8.7.2)
-**File:** `gradle/libs.versions.toml`, update `[versions]`:
-```toml
-androidx-activity = "1.12.4"
-android-appcompat = "1.7.1"
-android-material = "1.13.0"
-androidx-compose = "1.10.4"
-androidx-compose-material3 = "1.4.0"
-androidx-core = "1.17.0"
-androidx-core-splashscreen = "1.2.0"
-androidx-lifecycle = "2.10.0"
-androidx-navigation = "2.9.7"
-```
-**Validate:**
-```bash
-./gradlew assembleDebug testDebugUnitTest
-```
-
----
-
-### Step 4 — Third-Party Library Versions (still on Gradle 8.9 + AGP 8.7.2)
-**File:** `gradle/libs.versions.toml`, update `[versions]`:
-```toml
-apache-commons = "1.15.0"
-jackson = "2.19.0"
-json-schema-validator = "1.5.6"
-logback-classic = "1.5.18"
-mockk = "1.14.3"
-```
-**Validate:**
-```bash
-./gradlew assembleDebug testDebugUnitTest lint
-```
-
----
-
-### Step 5 — Gradle 8.9 → 9.4.0 + AGP 8.7.2 → 8.13.2 (the big toolchain jump)
-These two must be done together because AGP 8.13.2 requires Gradle > 8.9.
-
-**File:** `gradle/wrapper/gradle-wrapper.properties`:
-```properties
-distributionUrl=https\://services.gradle.org/distributions/gradle-9.4.0-bin.zip
-```
-**File:** `gradle/libs.versions.toml`:
-```toml
-android-gradle-plugin = "8.13.2"
-```
-**File:** `build.gradle.kts` — Remove the line `@file:Suppress("DSL_SCOPE_VIOLATION")`  
-**File:** `8vim/build.gradle.kts` — Remove the line `@file:Suppress("DSL_SCOPE_VIOLATION")`; check if `enableUnitTestCoverage` (bare reference) needs to be `enableUnitTestCoverage = true`.
-
-**Validate:**
-```bash
-./gradlew --version   # should show 9.4.0
-./gradlew assembleDebug testDebugUnitTest
-```
-
----
-
-### Step 6 — compileSdk + targetSdk 34 → 35 (Android 15)
-**File:** `8vim/build.gradle.kts`:
-```kotlin
-compileSdk = 35
-// ...
-targetSdk = 35
-```
-Review `MainActivity` for edge-to-edge implications (Android 15 enforces edge-to-edge for apps targeting API 35). For an IME service, this is lower risk but should be checked.
-
-**Validate:**
-```bash
-./gradlew clean assembleDebug testDebugUnitTest lint ktlintCheck
-```
-Confirm:
-- [ ] Debug APK builds successfully
-- [ ] All unit tests pass
-- [ ] No new lint errors
-- [ ] KtLint passes
-
----
-
-### Future Work (Out of Scope for This Plan)
-- **Arrow 1.x → 2.x migration**: Requires systematic API replacement across all functional code (a dedicated plan)
-- **Kotest 5.x → 6.x migration**: Await stable release
-- **Gradle 9.x configuration cache enforcement**: Review and fix if configuration cache issues surface during this upgrade
-- **Android 15 edge-to-edge**: If `targetSdk = 35` causes visual regressions in `MainActivity`, add `WindowCompat.setDecorFitsSystemWindows(window, false)` guard or adopt the edge-to-edge APIs
+1. Add string resources to `strings.xml` (no code dependencies, compiles alone)
+2. Add `WordPrediction` inner class and `wordPrediction` field to `AppPrefs.kt`; bump version to `9` (establishes the preference key before any observers)
+3. Create `SuggestionsManager.kt` with full implementation (depends on `AppPrefs.wordPrediction`)
+4. Add `val suggestionsManager = lazy { SuggestionsManager(this) }` to `VIM8Application.kt`; add `fun Context.suggestionsManager()` extension
+5. Create `SuggestionsBar.kt` Compose component (depends on `SuggestionsManager` and `Vim8ImeService`)
+6. Modify `Vim8ImeService.kt`: add `suggestionsManager` delegate, override `onUpdateSelection()`, integrate `SuggestionsBar()` into `ImeUi()`, override `onFinishInput()` to clear suggestions
+7. Add `SwitchPreference` for word prediction to `KeyboardScreen.kt`
+8. Write unit tests in `SuggestionsManagerSpec.kt`
+9. Run `./gradlew testDebugUnitTest lintDebug ktlintCheck` to validate
+10. Update memory-bank `activeContext.md` and `progress.md`

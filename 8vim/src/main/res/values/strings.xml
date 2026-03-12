@@ -138,6 +138,11 @@
     <string name="settings__keyboard__trail__is__visible__summary__on">Trail will be visible when typing</string>
     <string name="settings__keyboard__trail__is__visible__summary__off">No trail will be shown when typing</string>
 
+    <string name="settings__keyboard__word_prediction__group__title">Word Prediction</string>
+    <string name="settings__keyboard__word_prediction__enabled__title">Enable word prediction</string>
+    <string name="settings__keyboard__word_prediction__enabled__summary__on">Word suggestions will appear above the keyboard</string>
+    <string name="settings__keyboard__word_prediction__enabled__summary__off">No word suggestions shown</string>
+
     <string name="settings__keyboard__haptic__sound__group__title">Haptic and sound</string>
     <string name="settings__keyboard__haptic__feedback__enabled__title">Enable input haptic feedback</string>
     <string name="settings__keyboard__haptic__feedback__enabled__summary__on">Haptic feedback is enabled</string>

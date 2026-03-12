@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.AbstractComposeView
+import inc.flide.vim8.datastore.model.observeAsState
 import inc.flide.vim8.ime.input.ImeUiMode
 import inc.flide.vim8.ime.input.InputFeedbackController
 import inc.flide.vim8.ime.input.LocalInputFeedbackController
@@ -27,6 +28,7 @@ import inc.flide.vim8.ime.keyboard.compose.ProvideKeyboardHeight
 import inc.flide.vim8.ime.keyboard.view.KeyboardLayout
 import inc.flide.vim8.ime.keyboard.view.NumberLayout
 import inc.flide.vim8.ime.keyboard.view.SelectionLayout
+import inc.flide.vim8.ime.keyboard.view.SuggestionsBar
 import inc.flide.vim8.ime.keyboard.view.SymbolsLayout
 import inc.flide.vim8.ime.layout.loadKeyboardData
 import inc.flide.vim8.ime.layout.models.KeyboardData
@@ -67,6 +69,7 @@ class Vim8ImeService : LifecycleInputMethodService() {
     private val keyboardManager by keyboardManager()
     private val editorInstance by editorInstance()
     private val layoutLoader by layoutLoader()
+    private val suggestionsManager by suggestionsManager()
 
     private var resourcesContext by mutableStateOf(this as Context)
     private var inputWindowView by mutableStateOf<View?>(null)
@@ -128,6 +131,36 @@ class Vim8ImeService : LifecycleInputMethodService() {
         }
     }
 
+    override fun onUpdateSelection(
+        oldSelStart: Int,
+        oldSelEnd: Int,
+        newSelStart: Int,
+        newSelEnd: Int,
+        candidatesStart: Int,
+        candidatesEnd: Int
+    ) {
+        super.onUpdateSelection(
+            oldSelStart,
+            oldSelEnd,
+            newSelStart,
+            newSelEnd,
+            candidatesStart,
+            candidatesEnd
+        )
+        if (activeState.imeUiMode == ImeUiMode.TEXT &&
+            prefs.wordPrediction.enabled.get()
+        ) {
+            val ic = currentInputConnection ?: return
+            val textBeforeCursor = ic.getTextBeforeCursor(500, 0) ?: return
+            suggestionsManager.onTextBeforeCursor(textBeforeCursor)
+        }
+    }
+
+    override fun onFinishInput() {
+        super.onFinishInput()
+        suggestionsManager.clearSuggestions()
+    }
+
     override fun onCreateCandidatesView(): View? {
         return null
     }
@@ -164,6 +197,12 @@ class Vim8ImeService : LifecycleInputMethodService() {
     @Composable
     private fun ImeUi() {
         val state by keyboardManager.activeState.collectAsState()
+        val wordPredictionEnabled by prefs.wordPrediction.enabled.observeAsState()
+
+        if (wordPredictionEnabled && state.imeUiMode == ImeUiMode.TEXT) {
+            SuggestionsBar()
+        }
+
         when (state.imeUiMode) {
             ImeUiMode.TEXT, ImeUiMode.CLIPBOARD -> KeyboardLayout()
             ImeUiMode.NUMERIC -> NumberLayout()

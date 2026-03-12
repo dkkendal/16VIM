@@ -34,6 +34,24 @@ layers:
   hidden:
     - type: input_key
       movement_sequence:
+        - inside_circle
+        - left
+        - inside_circle
+      key_code: select_suggestion_left
+    - type: input_key
+      movement_sequence:
+        - inside_circle
+        - top
+        - inside_circle
+      key_code: select_suggestion_middle
+    - type: input_key
+      movement_sequence:
+        - inside_circle
+        - right
+        - inside_circle
+      key_code: select_suggestion_right
+    - type: input_key
+      movement_sequence:
         - no_touch
         - top
         - left
