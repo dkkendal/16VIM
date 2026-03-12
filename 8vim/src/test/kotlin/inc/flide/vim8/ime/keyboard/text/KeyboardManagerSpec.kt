@@ -16,7 +16,9 @@ import inc.flide.vim8.ime.input.InputKeyEventReceiver
 import inc.flide.vim8.ime.input.InputShiftState
 import inc.flide.vim8.ime.layout.models.CustomKeycode
 import inc.flide.vim8.ime.nlp.SuggestionsManager
+import inc.flide.vim8.ime.text.TextReplacementManager
 import inc.flide.vim8.suggestionsManager
+import inc.flide.vim8.textReplacementManager
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.datatest.withData
 import io.mockk.Runs
@@ -38,6 +40,7 @@ class KeyboardManagerSpec : FunSpec(
         lateinit var keyboardState: ObservableKeyboardState
         lateinit var editor: EditorInstance
         lateinit var suggestionsManager: SuggestionsManager
+        lateinit var textReplacementManager: TextReplacementManager
         lateinit var observerCtrl: PreferenceObserver<Boolean>
         lateinit var observerFn: PreferenceObserver<Boolean>
         val inputFeedbackController = mockk<InputFeedbackController>(relaxed = true)
@@ -137,6 +140,7 @@ class KeyboardManagerSpec : FunSpec(
         beforeSpec {
             mockkStatic(Context::editorInstance)
             mockkStatic(Context::suggestionsManager)
+            mockkStatic(Context::textReplacementManager)
             mockkStatic(::appPreferenceModel)
             mockkObject(ObservableKeyboardState)
             mockkObject(Vim8ImeService)
@@ -145,6 +149,7 @@ class KeyboardManagerSpec : FunSpec(
             context = mockk {
                 every { editorInstance() } answers { lazy { editor } }
                 every { suggestionsManager() } answers { lazy { suggestionsManager } }
+                every { textReplacementManager() } answers { lazy { textReplacementManager } }
             }
 
             every { ObservableKeyboardState.new() } answers { keyboardState }
@@ -163,6 +168,11 @@ class KeyboardManagerSpec : FunSpec(
                                     every { observe(any()) } answers { observerCtrl = firstArg() }
                                 }
                             }
+                        }
+                    }
+                    every { textReplacement } returns mockk {
+                        every { enabled } returns mockk(relaxed = true) {
+                            every { get() } returns false
                         }
                     }
                 }
@@ -190,6 +200,7 @@ class KeyboardManagerSpec : FunSpec(
                 every { inputShiftState } returns InputShiftState.CAPS_LOCK
             }
             suggestionsManager = mockk(relaxed = true)
+            textReplacementManager = mockk(relaxed = true)
         }
 
         test("Observe ctrl and fn on switch") {

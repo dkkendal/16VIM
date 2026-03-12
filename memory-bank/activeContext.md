@@ -1,27 +1,37 @@
 # Active Context: 8VIM
 
-## Current State (as of warning-fixes session)
+## Current State (as of text-replacement session)
 
 The project is at **version 0.17.0**. A full dependency upgrade was completed in the previous session. This session resolved all build warnings introduced by that upgrade.
 
 ## Current Work Focus
 
-**Completed:** Warning fixes pass — all 6 categories of deprecation/lint warnings eliminated.
+**Completed:** Automated Text Replacement feature fully implemented and tested.
 
 ### Summary of Changes Made This Session
 
-| Fix | File(s) Changed | Detail |
-|-----|----------------|--------|
-| `android {}` deprecation | `8vim/build.gradle.kts` | Added `@Suppress("DEPRECATION")` — `android.newDsl=false` kept due to KGP 2.2.0 `ClassCastException` |
-| `kotlinOptions` → new DSL | `8vim/build.gradle.kts` | Moved compiler options to top-level `kotlin { compilerOptions { jvmTarget; freeCompilerArgs } }` |
-| `bundle.language.enableSplit` | `8vim/build.gradle.kts` | Added `@Suppress("UnstableApiUsage")` |
-| `srcDirs(vararg)` deprecation | `8vim/build.gradle.kts` | Changed `srcDirs(...)` → `srcDir(...)` in sourceSets |
-| FlagsSpec unused warning | `8vim/src/test/kotlin/inc/flide/vim8/ime/layout/models/yaml/FlagsSpec.kt` | Added `@Suppress("unused")` |
-| `InvalidManifestAttribute` lint | `8vim/src/main/AndroidManifest.xml` | Removed invalid `launchMode` and `theme` attrs from `<activity-alias>` |
-| Flaky coroutine tests | `InputFeedbackControllerSpec.kt`, `KeyboardControllerSpec.kt` | `verify(timeout=2000)` for async haptic calls; `delay(200)` after `interruptLongPress` trigger |
+| Component | File(s) | Detail |
+|-----------|---------|--------|
+| Preferences | `AppPrefs.kt` | Added `TextReplacement` inner class: `enabled` (Boolean) + `entries` (String — JSON-serialised Map) |
+| Core manager | `ime/text/TextReplacementManager.kt` | Application-scoped service; persists abbreviation→expansion map; exposes `checkAndReplace(text)`, `addEntry`, `removeEntry`, `getEntries` |
+| Application wiring | `VIM8Application.kt` | Registered `textReplacementManager` via `singletonOf(::TextReplacementManager)` in `appModules` Koin list |
+| Keyboard integration | `ime/keyboard/text/KeyboardManager.kt` | `handleText()` calls `manager.checkAndReplace(text)` when feature is enabled; replaces with deletion + new commit |
+| Drawable | `res/drawable/ic_find_replace.xml` | Material `find_replace` vector icon for settings row |
+| Strings | `res/values/strings.xml` | All UI strings: title, enabled label, trigger hint, empty-state, add/save/cancel/delete, field labels/placeholders, blank-abbreviation error |
+| Settings screen | `app/settings/TextReplacementScreen.kt` | Compose screen with SwitchPreference enable toggle, LazyColumn list, FAB (add), swipe-to-delete via IconButton, AlertDialog for add |
+| Navigation | `app/Routes.kt` | Route constant `TEXT_REPLACEMENT = "settings/text-replacement"` + `composable()` registered in `AppNavHost` |
+| Home entry | `app/settings/HomeScreen.kt` | `Preference` row with `ic_find_replace` icon navigates to `TEXT_REPLACEMENT` route |
+| Tests — new | `ime/text/TextReplacementManagerSpec.kt` | Unit tests: addEntry, removeEntry, checkAndReplace (enabled/disabled, match/no-match, blank abbreviation guard) |
+| Tests — updated | `ime/keyboard/text/KeyboardManagerSpec.kt` | Mocked `Context::textReplacementManager`; stubbed `prefs.textReplacement.enabled.get()` → false |
+
+### Key Implementation Notes
+- **Trigger:** replacement fires when the user commits a space (` `), newline, or punctuation character — the preceding word is checked against the abbreviation map.
+- **Replace mechanism:** `EditorInstance.deleteSurroundingText(abbr.length + 1)` + `commitText(expansion + trigger)` keeps the trigger character.
+- **Storage:** abbreviation map stored as `prefs.textReplacement.entries` (a JSON string via the app's custom `PreferenceModel`). This means entries survive app restart and are included in backup/restore.
+- **Screen DSL note:** In the `Screen { }` builder lambda, `prefs` is only accessible inside the `content {}` block (it is the `PreferenceLayoutScope` receiver). State/composables that need to be shared with the FAB slot or AlertDialog must be declared in the outer `@Composable` builder scope. Composable string lookups (`stringRes(...)`) must be hoisted *out* of non-composable `onClick` lambdas.
 
 ### Pipeline Result
-**97 tasks — BUILD SUCCESSFUL** (clean + assembleRelease + testDebugUnitTest + lintDebug + ktlintCheck)
+**BUILD SUCCESSFUL** — `compileDebugKotlin` + `testDebugUnitTest` (all tests pass)
 
 ## Dependency Upgrade Summary (from previous session)
 | Component | Before | After |

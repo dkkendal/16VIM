@@ -13,6 +13,7 @@ import inc.flide.vim8.ime.layout.parsers.CborParser
 import inc.flide.vim8.ime.layout.parsers.yaml.YamlParser
 import inc.flide.vim8.ime.nlp.SuggestionsManager
 import inc.flide.vim8.ime.nlp.WordFrequencyRepository
+import inc.flide.vim8.ime.text.TextReplacementManager
 import inc.flide.vim8.ime.theme.ThemeManager
 import inc.flide.vim8.lib.android.tryOrNull
 import inc.flide.vim8.lib.backup.BackupManager
@@ -39,6 +40,7 @@ class VIM8Application : Application() {
     val editorInstance = lazy { EditorInstance(this) }
     val wordFrequencyRepository = lazy { WordFrequencyRepository(this) }
     val suggestionsManager = lazy { SuggestionsManager(this, wordFrequencyRepository.value) }
+    val textReplacementManager = lazy { TextReplacementManager(this) }
 
     override fun onCreate() {
         super.onCreate()
@@ -88,3 +90,4 @@ fun Context.backupManager() = this.vim8Application().backupManager
 fun Context.editorInstance() = this.vim8Application().editorInstance
 fun Context.suggestionsManager() = this.vim8Application().suggestionsManager
 fun Context.wordFrequencyRepository() = this.vim8Application().wordFrequencyRepository
+fun Context.textReplacementManager() = this.vim8Application().textReplacementManager

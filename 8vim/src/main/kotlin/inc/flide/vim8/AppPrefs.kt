@@ -30,6 +30,7 @@ class AppPrefs : PreferenceModel(9) {
     val keyboard = Keyboard()
     val inputFeedback = InputFeedback()
     val wordPrediction = WordPrediction()
+    val textReplacement = TextReplacement()
     val internal = Internal()
 
     inner class Clipboard {
@@ -246,6 +247,17 @@ class AppPrefs : PreferenceModel(9) {
         val enabled = boolean(
             key = "prefs_word_prediction_enabled",
             default = false
+        )
+    }
+
+    inner class TextReplacement {
+        val enabled = boolean(
+            key = "prefs_text_replacement_enabled",
+            default = false
+        )
+        val entries = stringSet(
+            key = "prefs_text_replacement_entries",
+            default = emptySet()
         )
     }
 

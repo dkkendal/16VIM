@@ -13,12 +13,15 @@ import inc.flide.vim8.ime.input.InputShiftState
 import inc.flide.vim8.ime.layout.models.CustomKeycode
 import inc.flide.vim8.ime.layout.models.KeyboardAction
 import inc.flide.vim8.ime.layout.models.KeyboardActionType
+import inc.flide.vim8.ime.text.TextReplacementManager
 import inc.flide.vim8.suggestionsManager
+import inc.flide.vim8.textReplacementManager
 
 class KeyboardManager(context: Context) : InputKeyEventReceiver {
     private val prefs by appPreferenceModel()
     private val editorInstance by context.editorInstance()
     private val suggestionsManager by context.suggestionsManager()
+    private val textReplacementManager by context.textReplacementManager()
     val activeState = ObservableKeyboardState.new()
 
     private val repeatableKeyCodes = intArrayOf(
@@ -138,6 +141,13 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
         editorInstance.commitText(text)
         if (activeState.inputShiftState == InputShiftState.SHIFTED) {
             activeState.inputShiftState = InputShiftState.UNSHIFTED
+        }
+        // After committing a trigger character, check if the preceding word is an abbreviation.
+        if (prefs.textReplacement.enabled.get() &&
+            text.isNotEmpty() &&
+            text.last() in TextReplacementManager.TRIGGER_CHARS
+        ) {
+            textReplacementManager.checkAndReplace()
         }
     }
 

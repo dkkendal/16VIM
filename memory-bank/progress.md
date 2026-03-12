@@ -33,6 +33,7 @@
 
 ### App & Settings
 - ✅ First-run IME setup wizard (`SetupScreen`)
+- ✅ **Automated Text Replacement** — abbreviation→expansion map; enable toggle; settings screen (TextReplacementScreen) with FAB + AlertDialog + list; fires on space/punctuation/newline after a word; survives app restart via preferences
 - ✅ Full settings screen with Jetpack Compose + Navigation
 - ✅ Custom layout file selector (`LayoutFileSelector`)
 - ✅ Dark / Light / System theme support

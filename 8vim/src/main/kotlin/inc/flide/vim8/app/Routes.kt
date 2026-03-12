@@ -11,6 +11,7 @@ import inc.flide.vim8.app.settings.GestureScreen
 import inc.flide.vim8.app.settings.HomeScreen
 import inc.flide.vim8.app.settings.KeyboardScreen
 import inc.flide.vim8.app.settings.LayoutScreen
+import inc.flide.vim8.app.settings.TextReplacementScreen
 import inc.flide.vim8.app.settings.ThemeScreen
 import inc.flide.vim8.app.settings.about.AboutScreen
 import inc.flide.vim8.app.settings.about.ThirdPartyLicencesScreen
@@ -29,6 +30,7 @@ object Routes {
         const val THEME = "settings/theme"
         const val GESTURE = "settings/gesture"
         const val BACKUP_AND_RESTORE = "settings/backup-and-restore"
+        const val TEXT_REPLACEMENT = "settings/text-replacement"
         const val ABOUT = "settings/about"
         const val THIRD_PARTY_LICENSES = "settings/about/third-party-licenses"
     }
@@ -49,6 +51,7 @@ object Routes {
             composable(Settings.THEME) { ThemeScreen() }
             composable(Settings.GESTURE) { GestureScreen() }
             composable(Settings.BACKUP_AND_RESTORE) { BackupRestoreScreen() }
+            composable(Settings.TEXT_REPLACEMENT) { TextReplacementScreen() }
             composable(Settings.ABOUT) { AboutScreen() }
             composable(Settings.THIRD_PARTY_LICENSES) { ThirdPartyLicencesScreen() }
         }

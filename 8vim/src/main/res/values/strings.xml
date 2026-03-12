@@ -138,6 +138,23 @@
     <string name="settings__keyboard__trail__is__visible__summary__on">Trail will be visible when typing</string>
     <string name="settings__keyboard__trail__is__visible__summary__off">No trail will be shown when typing</string>
 
+    <!-- Text Replacement Settings -->
+    <string name="settings__text_replacement__title">Text Replacement</string>
+    <string name="settings__text_replacement__description">Automatically replace abbreviations with full text while typing</string>
+    <string name="settings__text_replacement__enabled">Enable text replacement</string>
+    <string name="settings__text_replacement__add_entry">Add replacement</string>
+    <string name="settings__text_replacement__edit_entry">Edit replacement</string>
+    <string name="settings__text_replacement__delete_entry">Delete</string>
+    <string name="settings__text_replacement__abbreviation_label">Abbreviation</string>
+    <string name="settings__text_replacement__expansion_label">Replacement text</string>
+    <string name="settings__text_replacement__abbreviation_placeholder">e.g. omw</string>
+    <string name="settings__text_replacement__expansion_placeholder">e.g. On my way!</string>
+    <string name="settings__text_replacement__empty_list">No replacements yet. Tap + to add one.</string>
+    <string name="settings__text_replacement__save">Save</string>
+    <string name="settings__text_replacement__cancel">Cancel</string>
+    <string name="settings__text_replacement__error_blank_abbreviation">Abbreviation must not be blank</string>
+    <string name="settings__text_replacement__trigger_hint">Replacement fires when you type a space, period, comma, !, or ? after the abbreviation.</string>
+
     <string name="settings__keyboard__word_prediction__group__title">Word Prediction</string>
     <string name="settings__keyboard__word_prediction__enabled__title">Enable word prediction</string>
     <string name="settings__keyboard__word_prediction__enabled__summary__on">Word suggestions will appear above the keyboard</string>

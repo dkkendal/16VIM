@@ -1,174 +1,172 @@
-# Implementation Plan: Word Prediction for 8VIM
+# Implementation Plan: Automated Text Replacement
 
 [Overview]
-Add word prediction (auto-suggestions) to the 8VIM keyboard using Android's built-in TextServicesManager/SpellCheckerSession API.
+Add an Automated Text Replacement feature that lets users define abbreviation → expansion pairs in Settings, and automatically replaces typed abbreviations with their full text when a trigger character (space, period, comma, etc.) is typed.
 
-The 8VIM keyboard previously had a partial implementation of word prediction in the `predictive_text` branch (abandoned ~3 years ago). That branch was built on the old Java/XML-View architecture, used a bundled 333k-word English-only CSV dictionary loaded synchronously at startup, and wired everything through `onCreateCandidatesView()`. The current codebase is entirely Kotlin/Jetpack Compose, uses a service/manager pattern via `VIM8Application` lazy singletons, and manages all UI via composables inside `Vim8ImeService`.
+This feature is similar to "Text Shortcuts" found on iOS and macOS keyboards. When a user defines "omw" → "On my way!", typing `omw` followed by a space will instantly replace it with `On my way! `. The feature integrates with the existing `KeyboardManager` text-commit pipeline, stores its rules persistently in the existing `AppPrefs` / SharedPreferences system, and exposes a dedicated settings screen that fits the existing Jetpack Compose + `Screen {}` UI pattern.
 
-This implementation rebuilds word prediction from scratch using the modern architecture. Instead of a bundled CSV, we use Android's `TextServicesManager` + `SpellCheckerSession` — a zero-APK-size approach that supports any language the device has a dictionary installed for. The suggestion strip is a Compose component embedded directly in the keyboard's `ImeUi` composable column, appearing above the xpad when typing in TEXT mode. Tapping a suggestion deletes the current partial word and commits the full suggestion + a trailing space. A toggle in Settings (Keyboard screen) lets users enable/disable the feature.
+The implementation is split into four layers:
+1. **Storage** — two new preference keys in a new `AppPrefs.TextReplacement` inner class
+2. **Core logic** — a new `TextReplacementManager` class with pure-Kotlin helper methods (testable without Android)
+3. **IME integration** — hook into `KeyboardManager.handleText()` and wire the manager through `VIM8Application`
+4. **Settings UI** — a new `TextReplacementScreen` composable with an add-entry dialog, entry list with delete, and a master enable switch; new route and home-screen entry
 
 [Types]
-No new sealed classes or enums are needed; the main data structures are Kotlin data flows and standard Android types.
+No new Kotlin types or sealed classes are needed; one `AppPrefs.TextReplacement` inner class with two `PreferenceData` fields is introduced.
 
-- `StateFlow<List<String>>` — emitted by `SuggestionsManager` to hold the current 3 suggestion strings (empty list when no suggestions or prediction disabled)
-- `TextInfo(word: String)` — Android built-in type passed to `SpellCheckerSession.getSuggestions()`
-- `SuggestionsInfo[]` — Android built-in callback result type from `SpellCheckerSession`
-- `currentWordLength: Int` — mutable int field on `SuggestionsManager` tracking how many characters of the current partial word are before the cursor (needed for deletion on suggestion tap)
-- New preference: `wordPrediction.enabled: Boolean` — stored as `"prefs_word_prediction_enabled"` in SharedPreferences
+**AppPrefs.TextReplacement (inner class)**
+- `enabled: PreferenceData<Boolean>` — master on/off switch; key `prefs_text_replacement_enabled`; default `false`
+- `entries: PreferenceData<Set<String>>` — set of encoded pairs; key `prefs_text_replacement_entries`; default `emptySet()`
+
+**Encoding convention (not a Kotlin type)**
+Each element in the `entries` stringSet is `"<abbreviation>|||<expansion>"` where `|||` is the fixed separator constant `ENTRY_SEPARATOR = "|||"`. Abbreviations must not contain `|||` (validated on add). This convention is internal to `TextReplacementManager`.
+
+**TextReplacementManager companion constants**
+- `ENTRY_SEPARATOR: String = "|||"` — field separator used in encoded entries
+- `TRIGGER_CHARS: Set<Char> = setOf(' ', '.', ',', '!', '?')` — characters that end a word and trigger replacement check
 
 [Files]
-New files to create and existing files to modify.
+New and modified files for the complete feature implementation.
 
-**New Files:**
-- `8vim/src/main/kotlin/inc/flide/vim8/ime/nlp/SuggestionsManager.kt`
-  Purpose: Wraps Android's `TextServicesManager`/`SpellCheckerSession` lifecycle, exposes `suggestions: StateFlow<List<String>>` and `currentWordLength: Int`, provides `onTextBeforeCursor(text: CharSequence)` and `clearSuggestions()` methods.
+**New files to create:**
+- `8vim/src/main/kotlin/inc/flide/vim8/ime/text/TextReplacementManager.kt`  
+  Core logic: parse entries, encode entries, add/remove/list entries, find replacement, commit replacement via InputConnection.
+- `8vim/src/main/kotlin/inc/flide/vim8/app/settings/TextReplacementScreen.kt`  
+  Compose settings screen: enable switch, list of shortcut entries, add/edit dialog, delete per entry.
+- `8vim/src/main/res/drawable/ic_find_replace.xml`  
+  Simple vector drawable for the HomeScreen navigation icon (24dp, find-replace style icon).
+- `8vim/src/test/kotlin/inc/flide/vim8/ime/text/TextReplacementManagerSpec.kt`  
+  Kotest `FunSpec` unit tests covering pure logic: `parseEntries`, `encodeEntry`, `findReplacement`, `addEntry`, `removeEntry`.
 
-- `8vim/src/main/kotlin/inc/flide/vim8/ime/keyboard/view/SuggestionsBar.kt`
-  Purpose: Jetpack Compose `@Composable` that renders a horizontal row of up to 3 suggestion chips. Observes `SuggestionsManager.suggestions` flow. Each chip calls `commitSuggestion()` which deletes the current partial word and commits the chosen word + space via `InputConnection`.
-
-- `8vim/src/test/kotlin/inc/flide/vim8/ime/nlp/SuggestionsManagerSpec.kt`
-  Purpose: Unit tests for word extraction logic inside `SuggestionsManager` (pure function — no Android dependencies).
-
-**Modified Files:**
-- `8vim/src/main/kotlin/inc/flide/vim8/AppPrefs.kt`
-  Change: Add `inner class WordPrediction` with `enabled = boolean(key = "prefs_word_prediction_enabled", default = false)`. Add `val wordPrediction = WordPrediction()` field at the top of `AppPrefs`. Bump model version from `8` to `9`.
-
-- `8vim/src/main/kotlin/inc/flide/vim8/VIM8Application.kt`
-  Change: Add `val suggestionsManager = lazy { SuggestionsManager(this) }`. Add `fun Context.suggestionsManager()` extension at the bottom of the file.
-
-- `8vim/src/main/kotlin/inc/flide/vim8/Vim8ImeService.kt`
-  Changes:
-  1. Add `private val suggestionsManager by suggestionsManager()` property delegate.
-  2. Override `onUpdateSelection()` to read `getTextBeforeCursor(500, 0)` from the current input connection and forward it to `suggestionsManager.onTextBeforeCursor()`. Only call this when `activeState.imeUiMode == ImeUiMode.TEXT`.
-  3. In `ImeUi()` composable: observe `prefs.wordPrediction.enabled` and conditionally show `SuggestionsBar()` above the keyboard when enabled and in TEXT mode.
-  4. Override `onFinishInput()` to call `suggestionsManager.clearSuggestions()`.
-
-- `8vim/src/main/kotlin/inc/flide/vim8/app/settings/KeyboardScreen.kt`
-  Change: Add a new `PreferenceGroup` titled `"Word Prediction"` near the top of the screen content block, containing a single `SwitchPreference` wired to `prefs.wordPrediction.enabled`.
-
-- `8vim/src/main/res/values/strings.xml`
-  Change: Add 3 string resources:
-  ```xml
-  <string name="settings__keyboard__word_prediction__group__title">Word Prediction</string>
-  <string name="settings__keyboard__word_prediction__enabled__title">Enable word prediction</string>
-  <string name="settings__keyboard__word_prediction__enabled__summary__on">Word suggestions will appear above the keyboard</string>
-  <string name="settings__keyboard__word_prediction__enabled__summary__off">No word suggestions shown</string>
-  ```
-
-- `memory-bank/activeContext.md` and `memory-bank/progress.md`
-  Change: Update to reflect the new feature once implemented.
+**Existing files to modify:**
+- `8vim/src/main/kotlin/inc/flide/vim8/AppPrefs.kt`  
+  Add `val textReplacement = TextReplacement()` property and new `inner class TextReplacement` with `enabled` and `entries` preferences.
+- `8vim/src/main/kotlin/inc/flide/vim8/VIM8Application.kt`  
+  Add `val textReplacementManager = lazy { TextReplacementManager(this) }` lazy property and `fun Context.textReplacementManager()` extension function.
+- `8vim/src/main/kotlin/inc/flide/vim8/ime/keyboard/text/KeyboardManager.kt`  
+  Inject `textReplacementManager` via context extension, add trigger check at end of `handleText()`.
+- `8vim/src/main/kotlin/inc/flide/vim8/app/Routes.kt`  
+  Add `const val TEXT_REPLACEMENT = "settings/text-replacement"` route constant and `composable` registration.
+- `8vim/src/main/kotlin/inc/flide/vim8/app/settings/HomeScreen.kt`  
+  Add `Preference` navigation item for Text Replacement screen, with `ic_find_replace` icon.
+- `8vim/src/main/res/values/strings.xml`  
+  Add all string resources for the Text Replacement settings screen.
 
 [Functions]
 New functions and modifications to existing ones.
 
-**New Functions:**
+**New functions in `TextReplacementManager.kt`:**
 
-- `SuggestionsManager.onTextBeforeCursor(text: CharSequence): Unit`
-  File: `ime/nlp/SuggestionsManager.kt`
-  Extracts the current word being typed (everything after the last whitespace), stores its length in `currentWordLength`, and calls `spellCheckerSession?.getSuggestions(TextInfo(word), 3)` if the word is non-empty. If the word is empty, clears suggestions immediately.
+| Function | Visibility | Signature | Purpose |
+|---|---|---|---|
+| `parseEntries` | `internal` | `(rawSet: Set<String>): Map<String, String>` | Splits each `"abbr|||expansion"` string into a map. Skips malformed entries. |
+| `encodeEntry` | `internal` | `(abbreviation: String, expansion: String): String` | Returns `"$abbreviation$ENTRY_SEPARATOR$expansion"`. |
+| `findReplacement` | `internal` | `(textBeforeCursor: String, map: Map<String, String>): Pair<Int, String>?` | Returns `(charsToDelete, replacementText)` if the word ending at the last TRIGGER_CHAR matches a key in `map`, else null. `charsToDelete = abbreviation.length + 1` (for the boundary char). |
+| `getEntries` | `fun` | `(): List<Pair<String, String>>` | Returns all entries as sorted list of (abbreviation, expansion) pairs. |
+| `addEntry` | `fun` | `(abbreviation: String, expansion: String)` | Validates abbreviation is non-empty and does not contain `ENTRY_SEPARATOR`, removes any existing entry for the same abbreviation, appends the new encoded entry to the preference set. |
+| `removeEntry` | `fun` | `(abbreviation: String)` | Removes the encoded entry whose abbreviation prefix matches from the preference set. |
+| `checkAndReplace` | `fun` | `()` | Gets `currentInputConnection()` and `textBeforeCursor(500)`, calls `findReplacement`, then calls `deleteSurroundingText` and `commitText` on the InputConnection if a match is found. |
 
-- `SuggestionsManager.clearSuggestions(): Unit`
-  File: `ime/nlp/SuggestionsManager.kt`
-  Sets `_suggestions.value = emptyList()` and resets `currentWordLength = 0`.
+**Modified functions:**
 
-- `SuggestionsManager.extractCurrentWord(text: String): String` (private)
-  File: `ime/nlp/SuggestionsManager.kt`
-  Pure function. Returns `""` if `text` is empty or ends with whitespace; otherwise returns the substring after the last whitespace character.
-
-- `SuggestionsManager.initSession(): Unit` (private)
-  File: `ime/nlp/SuggestionsManager.kt`
-  Closes any existing `SpellCheckerSession` and opens a new one via `textServicesManager.newSpellCheckerSession(null, null, this, true)`.
-
-- `SuggestionsManager.closeSession(): Unit` (private)
-  File: `ime/nlp/SuggestionsManager.kt`
-  Closes the `SpellCheckerSession` and calls `clearSuggestions()`.
-
-- `SuggestionsBar(): Unit` (@Composable)
-  File: `ime/keyboard/view/SuggestionsBar.kt`
-  Reads `suggestionsManager().suggestions.collectAsState()`. If the list is empty, returns without rendering. Otherwise renders a `LazyRow` (or `Row`) of `SuggestionChip` composables, each calling `commitSuggestion()` on click.
-
-- `commitSuggestion(context: Context, suggestionsManager: SuggestionsManager, suggestion: String): Unit` (private top-level)
-  File: `ime/keyboard/view/SuggestionsBar.kt`
-  Gets `Vim8ImeService.currentInputConnection()`, deletes `suggestionsManager.currentWordLength` characters before cursor, commits `"$suggestion "`, then calls `suggestionsManager.clearSuggestions()`.
-
-**Modified Functions:**
-
-- `Vim8ImeService.ImeUi()` (@Composable)
-  File: `Vim8ImeService.kt`
-  Add observation of `prefs.wordPrediction.enabled` (via `observeAsState()`). At the top of the composable block, before the `when` statement on `state.imeUiMode`, conditionally render `SuggestionsBar()` when enabled and `state.imeUiMode == ImeUiMode.TEXT`.
-
-- `Vim8ImeService.onCreateCandidatesView()`
-  File: `Vim8ImeService.kt`
-  Currently returns `null`. No change needed — suggestions strip is embedded in the keyboard Compose UI, not the Android candidates area.
-
-- `AppPrefs.migrate()` (override)
-  File: `AppPrefs.kt`
-  No migration needed for new keys; version bumped from `8` → `9`, and the `else -> entry.keepAsIs()` fallback handles the new version.
+| Function | File | Change |
+|---|---|---|
+| `handleText` | `KeyboardManager.kt` | After `editorInstance.commitText(text)` and shift-reset, add: if `prefs.textReplacement.enabled.get()` is true AND `text.isNotEmpty()` AND `text.last() in TextReplacementManager.TRIGGER_CHARS`, call `textReplacementManager.checkAndReplace()`. |
+| `AppNavHost` | `Routes.kt` | Register new `composable(Settings.TEXT_REPLACEMENT) { TextReplacementScreen() }`. |
+| `HomeScreen` | `HomeScreen.kt` | Add `Preference` block with `iconId = R.drawable.ic_find_replace`, title from string res, `onClick = { navController.navigate(Routes.Settings.TEXT_REPLACEMENT) }`. |
 
 [Classes]
-New classes and key modifications.
+New and modified classes with complete descriptions.
 
-**New Classes:**
+**New class: `TextReplacementManager`**
+- File: `8vim/src/main/kotlin/inc/flide/vim8/ime/text/TextReplacementManager.kt`
+- Package: `inc.flide.vim8.ime.text`
+- Constructor: `(context: Context)` — stores nothing from context; context is used only for `appPreferenceModel()` delegation
+- Key property: `private val prefs by appPreferenceModel()` — follows the same delegation pattern as `KeyboardManager`
+- Companion object: declares `ENTRY_SEPARATOR` and `TRIGGER_CHARS` constants
+- Does **not** extend any base class or implement any interface
+- All pure-logic methods (`parseEntries`, `encodeEntry`, `findReplacement`) are `internal` so they can be directly tested via a test-subject pattern matching `SuggestionsManagerSpec`
 
-- `SuggestionsManager` in `inc/flide/vim8/ime/nlp/SuggestionsManager.kt`
-  Implements: `SpellCheckerSession.SpellCheckerSessionListener`
-  Constructor: `(private val context: Context)`
-  Key fields:
-  - `private val textServicesManager: TextServicesManager` — obtained from system services
-  - `private var spellCheckerSession: SpellCheckerSession?` — nullable, recreated when locale changes
-  - `private val _suggestions = MutableStateFlow<List<String>>(emptyList())`
-  - `val suggestions: StateFlow<List<String>>` — public read-only view
-  - `var currentWordLength: Int = 0` — how many chars of current partial word are before cursor
-  - `private val mainHandler = Handler(Looper.getMainLooper())` — to post results to main thread
-  Key methods:
-  - `onTextBeforeCursor()`, `clearSuggestions()`, `extractCurrentWord()` (see Functions)
-  - `onGetSuggestions(results: Array<SuggestionsInfo>?)` — SpellChecker callback, posts results to main thread via handler
-  - `onGetSentenceSuggestions()` — SpellChecker callback, no-op
-  Init block: observes `prefs.wordPrediction.enabled` to init/close session accordingly.
+**Modified class: `AppPrefs`**
+- File: `8vim/src/main/kotlin/inc/flide/vim8/AppPrefs.kt`
+- Add `val textReplacement = TextReplacement()` field in the body (alongside `layout`, `keyboard`, etc.)
+- Add `inner class TextReplacement` with `enabled` (`boolean`) and `entries` (`stringSet`) preference fields. No version bump required (new keys default gracefully on first access).
 
-**Modified Classes:**
+**Modified class: `VIM8Application`**
+- File: `8vim/src/main/kotlin/inc/flide/vim8/VIM8Application.kt`
+- Add `val textReplacementManager = lazy { TextReplacementManager(this) }` lazy property
+- Add companion extension function `fun Context.textReplacementManager() = this.vim8Application().textReplacementManager` (at bottom of file, alongside `suggestionsManager`, `editorInstance`, etc.)
 
-- `AppPrefs` in `AppPrefs.kt`
-  Add nested `inner class WordPrediction` with `enabled: PreferenceData<Boolean>`.
-  Add `val wordPrediction = WordPrediction()` at class body level.
-  Bump `PreferenceModel(8)` → `PreferenceModel(9)`.
+**Modified class: `KeyboardManager`**
+- File: `8vim/src/main/kotlin/inc/flide/vim8/ime/keyboard/text/KeyboardManager.kt`
+- Add `private val textReplacementManager by context.textReplacementManager()` field (same delegation pattern as `suggestionsManager`)
+- Modify `handleText()` to call `textReplacementManager.checkAndReplace()` when appropriate (see Functions section)
 
-- `VIM8Application` in `VIM8Application.kt`
-  Add `val suggestionsManager = lazy { SuggestionsManager(this) }`.
+**New composable: `TextReplacementScreen`**
+- File: `8vim/src/main/kotlin/inc/flide/vim8/app/settings/TextReplacementScreen.kt`
+- Pattern: `Screen { title = ...; previewFieldVisible = true; content { ... } }` matching all other settings screens
+- Inside `content {}`: `PreferenceGroup` with `SwitchPreference(prefs.textReplacement.enabled, ...)`, then `PreferenceGroup(title = "Shortcuts")` containing a "Add shortcut" `Preference` item with a trailing `+` icon and per-entry items that are clickable (to edit) and have a trailing delete `IconButton`
+- Dialog state managed with `remember { mutableStateOf(...) }` — a single reusable `AlertDialog` with two `OutlinedTextField` inputs (abbreviation, expansion) used for **both** adding new and editing existing entries
+- Dialog mode tracking: `editingAbbreviation: String?` (`null` = add mode, non-null = edit mode with the original abbreviation). Dialog title reads "Add Shortcut" or "Edit Shortcut" accordingly
+- On dialog save: if `editingAbbreviation != null && editingAbbreviation != abbreviationInput`, call `textReplacementManager.removeEntry(editingAbbreviation)` first (to handle abbreviation rename), then call `textReplacementManager.addEntry(abbreviationInput, expansionInput)`
+- Entry list built from `prefs.textReplacement.entries.observeAsState()` → `remember(entries) { textReplacementManager.parseEntries(entries).toList().sortedBy { it.first } }` for reactive updates
+- Context accessed via `LocalContext.current`, manager via `remember { context.textReplacementManager().value }`
 
 [Dependencies]
-No new third-party dependencies are required.
+No new external library dependencies are required.
 
-The `android.view.textservice.*` package (TextServicesManager, SpellCheckerSession, TextInfo, SuggestionsInfo) is part of the Android SDK (available since API 14, well within minSdk 24). `READ_USER_DICTIONARY` permission is NOT required for `TextServicesManager` — the spell checker accesses the system dictionary internally without the app needing that permission. The `apache-commons-text` library (LevenshteinDistance from old branch) is already present in `libs.versions.toml` and `build.gradle.kts` as a production dependency — it can remain (it's used nowhere currently but adding a removal is out of scope). No CSV asset needs to be added.
+All logic uses:
+- Existing Kotlin stdlib (`Set`, `Map`, string operations)
+- Existing Android SDK (`InputConnection`, `SharedPreferences` — already used throughout)
+- Existing Compose Material3 (`AlertDialog`, `OutlinedTextField`, `IconButton` — already in the Compose dependency)
+- The `ic_find_replace.xml` drawable is a new first-party vector resource (no external icon library needed)
+
+No changes to `gradle/libs.versions.toml` or `8vim/build.gradle.kts` are required.
 
 [Testing]
-Unit tests for the pure word-extraction function and integration spec for the manager's StateFlow behavior.
+Unit tests covering all pure-Kotlin logic in `TextReplacementManager`; Android-dependent methods (`checkAndReplace`) are left for integration testing.
 
 **New test file:**
-`8vim/src/test/kotlin/inc/flide/vim8/ime/nlp/SuggestionsManagerSpec.kt`
+`8vim/src/test/kotlin/inc/flide/vim8/ime/text/TextReplacementManagerSpec.kt`
 
-Test cases (using Kotest BehaviorSpec pattern consistent with the rest of the test suite):
-- `extractCurrentWord("")` → `""`
-- `extractCurrentWord("hello ")` → `""` (ends with space — no current word)
-- `extractCurrentWord("hello")` → `"hello"`
-- `extractCurrentWord("hello world")` → `"world"`
-- `extractCurrentWord("hello\nworld")` → `"world"` (newline is whitespace)
-- `onTextBeforeCursor("hello ")` → `currentWordLength == 0`, `suggestions == emptyList()`
-- `onTextBeforeCursor("hello wor")` → `currentWordLength == 3`, suggestions request queued
-- `clearSuggestions()` → `suggestions == emptyList()`, `currentWordLength == 0`
+Tests follow the `SuggestionsManagerSpec` pattern: a private `TextReplacementManagerTestSubject` class replicates the internal pure logic to avoid constructing the real class (which needs Android `Context` for `appPreferenceModel()`).
 
-The `SpellCheckerSession` should be mocked (MockK) to verify `getSuggestions()` is called with the correct `TextInfo` and suggestion count. The `TextServicesManager` system service call should be mocked at the context level.
+Test contexts:
+- `parseEntries — valid entries` — `"btw|||By the way"` → map `{"btw" → "By the way"}`
+- `parseEntries — malformed entries are skipped` — entries without separator are ignored
+- `parseEntries — empty set returns empty map`
+- `encodeEntry — round-trip` — `encodeEntry("btw", "By the way")` round-trips through `parseEntries`
+- `findReplacement — no match returns null` — unknown abbreviation, no entries
+- `findReplacement — match at end of text` — `"btw "` with map `{"btw" → "By the way"}` → `(4, "By the way ")`
+- `findReplacement — match after other words` — `"hello btw "` → still matches `"btw"`
+- `findReplacement — boundary char preserved` — period, comma, `!`, `?` all preserved in replacement
+- `findReplacement — no match when text ends with non-trigger char` — `"btw"` (no trailing space) → null
+- `findReplacement — case-sensitive` — `"BTW"` does not match `"btw"` mapping
+- `addEntry / removeEntry logic` — via `parseEntries` after encode: add "omw", remove "omw", double-add overwrites
 
 [Implementation Order]
-Steps ordered to minimize compile errors and allow incremental validation.
+Implement in the sequence below to ensure each change compiles and can be tested before the next depends on it.
 
-1. Add string resources to `strings.xml` (no code dependencies, compiles alone)
-2. Add `WordPrediction` inner class and `wordPrediction` field to `AppPrefs.kt`; bump version to `9` (establishes the preference key before any observers)
-3. Create `SuggestionsManager.kt` with full implementation (depends on `AppPrefs.wordPrediction`)
-4. Add `val suggestionsManager = lazy { SuggestionsManager(this) }` to `VIM8Application.kt`; add `fun Context.suggestionsManager()` extension
-5. Create `SuggestionsBar.kt` Compose component (depends on `SuggestionsManager` and `Vim8ImeService`)
-6. Modify `Vim8ImeService.kt`: add `suggestionsManager` delegate, override `onUpdateSelection()`, integrate `SuggestionsBar()` into `ImeUi()`, override `onFinishInput()` to clear suggestions
-7. Add `SwitchPreference` for word prediction to `KeyboardScreen.kt`
-8. Write unit tests in `SuggestionsManagerSpec.kt`
-9. Run `./gradlew testDebugUnitTest lintDebug ktlintCheck` to validate
-10. Update memory-bank `activeContext.md` and `progress.md`
+1. **Add `AppPrefs.TextReplacement`** — Add `inner class TextReplacement` and `val textReplacement = TextReplacement()` to `AppPrefs.kt`. Build verifies the model compiles.
+
+2. **Create `TextReplacementManager.kt`** — New file with all logic: `parseEntries`, `encodeEntry`, `findReplacement`, `getEntries`, `addEntry`, `removeEntry`, `checkAndReplace`. Companion constants.
+
+3. **Write `TextReplacementManagerSpec.kt`** — Unit tests for all internal/pure-logic functions using `TextReplacementManagerTestSubject`. Run `./gradlew testDebugUnitTest` to verify all tests pass.
+
+4. **Wire into `VIM8Application.kt`** — Add `textReplacementManager` lazy property and `Context.textReplacementManager()` extension function.
+
+5. **Integrate into `KeyboardManager.kt`** — Add `private val textReplacementManager by context.textReplacementManager()` field and modify `handleText()` to call `checkAndReplace()` on trigger chars.
+
+6. **Create `ic_find_replace.xml`** — New vector drawable for the HomeScreen icon.
+
+7. **Add string resources to `strings.xml`** — All screen title, group titles, preference labels, dialog strings.
+
+8. **Create `TextReplacementScreen.kt`** — Full Compose screen following `Screen {}` pattern with switch preference, entry list, and add-entry dialog.
+
+9. **Register route in `Routes.kt`** — Add `TEXT_REPLACEMENT` constant and `composable` registration in `AppNavHost`.
+
+10. **Add HomeScreen navigation entry in `HomeScreen.kt`** — Add `Preference` item that navigates to the new route.
+
+11. **Full build + test verification** — Run `./gradlew testDebugUnitTest lintDebug ktlintCheck` and verify the build is clean.
+
+12. **Update memory bank** — Update `activeContext.md` and `progress.md` to reflect the new feature and its patterns.

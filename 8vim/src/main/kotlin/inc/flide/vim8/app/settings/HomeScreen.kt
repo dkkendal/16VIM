@@ -102,6 +102,17 @@ fun HomeScreen() = Screen {
             }
         )
         Preference(
+            iconId = R.drawable.ic_find_replace,
+            title = stringRes(R.string.settings__text_replacement__title),
+            onClick = { navController.navigate(Routes.Settings.TEXT_REPLACEMENT) },
+            trailing = {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null
+                )
+            }
+        )
+        Preference(
             iconId = R.drawable.ic_settings_backup_restore,
             title = stringRes(R.string.settings__backup_and_restore__title),
             onClick = { navController.navigate(Routes.Settings.BACKUP_AND_RESTORE) },
