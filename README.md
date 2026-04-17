@@ -19,3 +19,6 @@ To become a beta tester please click [here](https://play.google.com/apps/testing
 ## Usability Guide
 
 The full guide is available [here](https://8vim.github.io/docs/)
+
+## 16Vim
+Because I'm crazy and wanted extra axes so the numbers could make it on the main keyboard.
